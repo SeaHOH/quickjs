@@ -152,6 +152,26 @@ class CallIntoPython(unittest.TestCase):
         self.context.add_callable("f", lambda x: x + 2)
         self.assertEqual(self.context.eval("f(40)"), 42)
 
+    def test_make_function_name_exists(self):
+        self.context.eval("""
+            var f1 = (x => x);
+            let f2 = f1;
+            const f3 = f1;
+        """)
+
+        self.context.add_callable("f1", lambda x: x + 2)
+        self.assertEqual(self.context.eval("f1(40)"), 42)
+
+        self.context.add_callable("f2", lambda x: x + 2)
+        self.assertEqual(self.context.eval("f2(40)"), 42)
+
+        with self.assertRaisesRegex(TypeError, "Failed adding the callable"):
+            self.context.add_callable("f3", lambda x: x + 2)
+        self.assertEqual(self.context.eval("f3(40)"), 40)
+
+        self.context.add_callable("f3", lambda x: x + 2, force=True)
+        self.assertEqual(self.context.eval("f3(40)"), 42)
+
     def test_make_two_functions(self):
         for i in range(10):
             self.context.add_callable("f", lambda x: i + x + 2)

@@ -220,7 +220,7 @@ static PyObject *object_call(ObjectData *self, PyObject *args, PyObject *kwds) {
 	}
 
 	// Now we know that all arguments are supported and we can convert them.
-	JSValueConst *jsargs = malloc(nargs * sizeof(JSValueConst));
+	JSValueConst *jsargs = malloc(sizeof(JSValueConst) * nargs);
 	for (int i = 0; i < nargs; ++i) {
 		PyObject *item = PyTuple_GetItem(args, i);
 		jsargs[i] = python_to_quickjs(self->context, item);
@@ -297,7 +297,8 @@ static PyObject *quickjs_to_python(ContextData *context_obj, JSValue value) {
 		// will result in a segfault with high probability.
 		Py_INCREF(context_obj);
 		object->context = context_obj;
-		object->object = JS_DupValue(context, value);
+		object->object = value;
+		return return_value;
 	} else {
 		PyErr_Format(PyExc_TypeError, "Unknown quickjs tag: %d", tag);
 	}
@@ -555,10 +556,12 @@ static JSValue js_c_function(
 	return js_result;
 }
 
-static PyObject *context_add_callable(ContextData *self, PyObject *args) {
+static PyObject *context_add_callable(ContextData *self, PyObject *args, PyObject *kwargs) {
 	const char *name;
 	PyObject *callable;
-	if (!PyArg_ParseTuple(args, "sO", &name, &callable)) {
+	int force = 0;
+	static char *kwlist[] = {"name", "callable", "force", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "sO|p", kwlist, &name, &callable, &force)) {
 		return NULL;
 	}
 	if (!PyCallable_Check(callable)) {
@@ -570,30 +573,33 @@ static PyObject *context_add_callable(ContextData *self, PyObject *args) {
 	if (!node) {
 		return NULL;
 	}
-	Py_INCREF(callable);
 	node->magic = 0;
 	if (self->python_callables) {
 		node->magic = self->python_callables->magic + 1;
 	}
 	node->obj = callable;
 	node->next = self->python_callables;
-	self->python_callables = node;
 
+	JSContext *ctx = self->context;
 	JSValue function = JS_NewCFunctionMagic(
-	    self->context,
+	    ctx,
 	    js_c_function,
-	    name,
-	    0,  // TODO: Should we allow setting the .length of the function to something other than 0?
+	    "PythonFunction",
+	    0,
 	    JS_CFUNC_generic_magic,
 	    node->magic);
-	JSValue global = JS_GetGlobalObject(self->context);
-	// If this fails we don't notify the caller of this function.
-	int ret = JS_SetPropertyStr(self->context, global, name, function);
-	JS_FreeValue(self->context, global);
-	if (ret != 1) {
-		PyErr_SetString(PyExc_TypeError, "Failed adding the callable.");
+	int ret = JS_SetGlobalVarStr(ctx, name, function, force);
+	if (ret < 0) {
+		JSValue exception = JS_GetException(ctx);
+		const char *cstring = JS_ToCString(ctx, exception);
+		PyErr_Format(PyExc_TypeError, "Failed adding the callable: %s", cstring);
+		JS_FreeCString(ctx, cstring);
+		JS_FreeValue(ctx, exception);
+		Py_DECREF(node);
 		return NULL;
 	} else {
+		Py_INCREF(callable);
+		self->python_callables = node;
 		Py_RETURN_NONE;
 	}
 }
@@ -621,7 +627,7 @@ static PyMethodDef context_methods[] = {
      "Sets the maximum stack size in bytes. Default is 256kB."},
     {"memory", (PyCFunction)context_memory, METH_NOARGS, "Returns the memory usage as a dict."},
     {"gc", (PyCFunction)context_gc, METH_NOARGS, "Runs garbage collection."},
-    {"add_callable", (PyCFunction)context_add_callable, METH_VARARGS, "Wraps a Python callable."},
+    {"add_callable", (PyCFunction)context_add_callable, METH_VARARGS|METH_KEYWORDS, "Wraps a Python callable."},
     {NULL} /* Sentinel */
 };
 

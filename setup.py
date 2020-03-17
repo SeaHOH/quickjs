@@ -1,5 +1,6 @@
 import glob
 import sys
+import third_party_patch
 from typing import List
 
 from setuptools import setup, Extension
@@ -19,8 +20,8 @@ if sys.platform == "win32":
     distutils.cygwinccompiler.get_msvcr = lambda: []
     # Escaping works differently.
     CONFIG_VERSION = f'\\"{CONFIG_VERSION}\\"'
-    # Make sure that pthreads is linked statically, otherwise we run into problems
-    # on computers where it is not installed.
+    # Make sure that all libraries are linked statically, otherwise we run into
+    # problems on computers where it is not installed.
     extra_link_args = ["-static"]
 else:
     CONFIG_VERSION = f'"{CONFIG_VERSION}"'
@@ -51,6 +52,10 @@ QuickJS is currently thread-hostile, so this wrapper makes sure that all calls
 to the same JS runtime comes from the same thead.
 """
 
+do_patch = "build" in sys.argv or "install" in sys.argv
+if do_patch:
+    third_party_patch.patch()
+
 setup(author="Petter Strandmark",
       author_email="petter.strandmark@gmail.com",
       name='quickjs',
@@ -60,3 +65,6 @@ setup(author="Petter Strandmark",
       long_description=long_description,
       packages=["quickjs"],
       ext_modules=[_quickjs])
+
+if do_patch:
+    third_party_patch.revert()
