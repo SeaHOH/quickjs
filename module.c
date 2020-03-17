@@ -326,12 +326,16 @@ static PyObject *context_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 		// We never have different contexts for the same runtime. This way, different
 		// _quickjs.Context can be used concurrently.
 		self->runtime = JS_NewRuntime();
-		self->context = JS_NewContext(self->runtime);
+		JSContext *ctx = JS_NewContext(self->runtime);
+		self->context = ctx;
 		self->has_time_limit = 0;
 		self->time_limit = 0;
 		self->thread_state = NULL;
 		self->python_callables = NULL;
 		JS_SetContextOpaque(self->context, self);
+		JSValue global = JS_GetGlobalObject(ctx);
+		JS_DefinePropertyValueStr(ctx, global, "Python", JS_NewObject(ctx), 0);
+		JS_FreeValue(ctx, global);
 	}
 	return (PyObject *)self;
 }
@@ -559,9 +563,9 @@ static JSValue js_c_function(
 static PyObject *context_add_callable(ContextData *self, PyObject *args, PyObject *kwargs) {
 	const char *name;
 	PyObject *callable;
-	int force = 0;
-	static char *kwlist[] = {"name", "callable", "force", NULL};
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "sO|p", kwlist, &name, &callable, &force)) {
+	int writeable = 0;
+	static char *kwlist[] = {"name", "callable", "writeable", NULL};
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "sO|p", kwlist, &name, &callable, &writeable)) {
 		return NULL;
 	}
 	if (!PyCallable_Check(callable)) {
@@ -588,13 +592,21 @@ static PyObject *context_add_callable(ContextData *self, PyObject *args, PyObjec
 	    0,
 	    JS_CFUNC_generic_magic,
 	    node->magic);
-	int ret = JS_SetGlobalVarStr(ctx, name, function, force);
+
+	JSValue global = JS_GetGlobalObject(ctx);
+	JSValue python = JS_GetPropertyStr(ctx, global, "Python");
+	int ret = JS_DefinePropertyValueStr(ctx, python, name, function,
+	                                    JS_PROP_CONFIGURABLE | (writeable ? JS_PROP_WRITABLE : 0));
+	JS_FreeValue(ctx, python);
+	JS_FreeValue(ctx, global);
+
 	if (ret < 0) {
 		JSValue exception = JS_GetException(ctx);
 		const char *cstring = JS_ToCString(ctx, exception);
 		PyErr_Format(PyExc_TypeError, "Failed adding the callable: %s", cstring);
 		JS_FreeCString(ctx, cstring);
 		JS_FreeValue(ctx, exception);
+		JS_FreeValue(ctx, function);
 		Py_DECREF(node);
 		return NULL;
 	} else {

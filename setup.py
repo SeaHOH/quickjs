@@ -1,6 +1,5 @@
 import glob
 import sys
-import third_party_patch
 from typing import List
 
 from setuptools import setup, Extension
@@ -52,10 +51,6 @@ QuickJS is currently thread-hostile, so this wrapper makes sure that all calls
 to the same JS runtime comes from the same thead.
 """
 
-do_patch = "build" in sys.argv or "install" in sys.argv
-if do_patch:
-    third_party_patch.patch()
-
 setup(author="Petter Strandmark",
       author_email="petter.strandmark@gmail.com",
       name='quickjs',
@@ -65,6 +60,3 @@ setup(author="Petter Strandmark",
       long_description=long_description,
       packages=["quickjs"],
       ext_modules=[_quickjs])
-
-if do_patch:
-    third_party_patch.revert()
