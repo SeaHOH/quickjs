@@ -334,7 +334,7 @@ static PyObject *context_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 		self->python_callables = NULL;
 		JS_SetContextOpaque(self->context, self);
 		JSValue global = JS_GetGlobalObject(ctx);
-		JS_DefinePropertyValueStr(ctx, global, "Python", JS_NewObject(ctx), 0);
+		JS_DefinePropertyValueStr(ctx, global, "python", JS_NewObject(ctx), 0);
 		JS_FreeValue(ctx, global);
 	}
 	return (PyObject *)self;
@@ -569,7 +569,7 @@ static PyObject *context_add_callable(ContextData *self, PyObject *args, PyObjec
 		return NULL;
 	}
 	if (!PyCallable_Check(callable)) {
-		PyErr_SetString(PyExc_TypeError, "Argument must be callable.");
+		PyErr_SetString(PyExc_TypeError, "Second argument must be callable.");
 		return NULL;
 	}
 
@@ -589,13 +589,13 @@ static PyObject *context_add_callable(ContextData *self, PyObject *args, PyObjec
 	    ctx,
 	    js_c_function,
 	    "PythonFunction",
-	    0,
+	    0,  // Set arguments length to 0 is OK.
 	    JS_CFUNC_generic_magic,
 	    node->magic);
 
 	JSValue global = JS_GetGlobalObject(ctx);
-	JSValue python = JS_GetPropertyStr(ctx, global, "Python");
-	int ret = JS_DefinePropertyValueStr(ctx, python, name, function,
+	JSValue python = JS_GetPropertyStr(ctx, global, "python");
+	int ret = JS_DefinePropertyValueStr(ctx, python, name, function, JS_PROP_THROW |
 	                                    JS_PROP_CONFIGURABLE | (writeable ? JS_PROP_WRITABLE : 0));
 	JS_FreeValue(ctx, python);
 	JS_FreeValue(ctx, global);
@@ -606,8 +606,7 @@ static PyObject *context_add_callable(ContextData *self, PyObject *args, PyObjec
 		PyErr_Format(PyExc_TypeError, "Failed adding the callable: %s", cstring);
 		JS_FreeCString(ctx, cstring);
 		JS_FreeValue(ctx, exception);
-		JS_FreeValue(ctx, function);
-		Py_DECREF(node);
+		PyMem_Free(node);
 		return NULL;
 	} else {
 		Py_INCREF(callable);
